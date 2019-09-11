@@ -50,7 +50,7 @@ for iter = 1:model.MaxIteration
         fBar = predictor(data.xTrain(i,:),model);
         for j = 1:model.nEnsemble
             penalty = -lambda * (forward(data.xTrain(i,:),model.base(j).net) - fBar);
-            model.base(j).net = backward(data.xTrain(i,:),data.tTrain(i,:),model.base(j).net,penalty,eta);
+            model.base(j).net = backward(data.xTrain(i,:), data.tTrain(i,:), model.base(j).net, penalty, eta);
         end
     end
     
