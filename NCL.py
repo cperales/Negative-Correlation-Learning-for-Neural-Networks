@@ -18,18 +18,18 @@ def test():
 
     # Data
     x, y = load_dataset()
-    x_train, x_test, y_train, y_test = model_selection.train_test_split(x=x,
-                                                                        y=y,
+    x_train, x_test, y_train, y_test = model_selection.train_test_split(x, y,
                                                                         test_size=0.5,
                                                                         random_state=0)
-    n_test = x_test.shape[0]
-    J = y_train.shape[1]
+    print('Size of training =', x_train.shape[0])
+    print('Size of testing =', x_test.shape[0])
+    print('Dimension of data =', x_train.shape[1])
     lambda_ = 0.5
     eta = 0.1
 
     start = time.perf_counter()
     model = NCL()
-    model.train(x, y, ensemble_size, h, max_iter, lambda_, eta)
+    model.train(x_train, y_train, ensemble_size, h, max_iter, lambda_, eta)
     end = time.perf_counter()
 
     print('Elapsed time =', end - start)
@@ -44,6 +44,7 @@ def load_dataset():
     :return: data scaled and target.
     """
     X, y = datasets.load_boston(return_X_y=True)
+    y = y.reshape((len(y), 1))
     X_scaled = preprocessing.scale(X)
     return X_scaled, y
 
@@ -59,6 +60,25 @@ def rmse(a, b):
     return np.linalg.norm(a - b, ord=2)
 
 
+def sigmoid(x):
+    """
+    Sigmoid function. It can be replaced with scipy.special.expit.
+    :param x:
+    :return:
+    """
+    return 1 / (1 + np.exp(-x))
+
+
+def sigmoid_derivative(y):
+    """
+    Derivate of the sigmoid function.
+    We assume y is already sigmoided.
+    :param y:
+    :return:
+    """
+    return y * (1.0 - y)
+
+
 class NeuralNetwork:
     """
     Neural Network.
@@ -67,28 +87,17 @@ class NeuralNetwork:
     dim: int
     h: int
     j: int
-    eta: float
+    learning_rate: float
     input_weight = None
     hidden_bias = None
     output_weight = None
     output_bias = None
 
-    @staticmethod
-    def activation(x):
-        """
-        Activation function. From MATLAB example, log-sigmoid.
-        TODO: modify for other activation functions.
-
-        :param x:
-        :return:
-        """
-        return expit(x)
-
     def __init__(self, h, eta):
         self.h = h
         # self.x = x
         # self.y = y
-        self.eta = eta
+        self.learning_rate = eta
 
     def initial(self, x, y):
         """
@@ -101,19 +110,25 @@ class NeuralNetwork:
         self.n = x.shape[0]
         self.dim = x.shape[1]
         self.j = y.shape[1]
-        self.input_weight = np.random.rand(self.dim, self.h)
+        self.input_weight = 2.0 * np.random.rand(self.dim, self.h) - 1.0
         self.hidden_bias = np.random.rand(1, self.h)
-        self.output_weight = np.random.rand(self.h, self.j)
+        self.output_weight = 2.0 * np.random.rand(self.h, self.j) - 1.0
         self.output_bias = np.random.rand(1, self.j)
+        return self
 
-    def backward(self, x, y, penalty):
+    def backward(self, x, y, penalty=0.0):
         hidden_layer, output_layer = self.forward(x)
-        nc = output_layer - y + penalty
+        nc_error = output_layer - y + penalty
 
-        delta_output_weight = output_layer * np.dot((1.0 - output_layer).T, hidden_layer)
-        delta_output_bias = output_layer * (1.0 - output_layer)
-        delta_input_weight = self.output_weight * (hidden_layer * )
-        eta = self.eta
+        delta_output_weight = np.dot(hidden_layer.T,  nc_error * sigmoid_derivative(output_layer))
+        delta_output_bias = nc_error * sigmoid_derivative(output_layer)
+        delta_input_weight = nc_error * self.output_weight * sigmoid_derivative(hidden_layer), x
+        delta_hidden_bias = self.output_weight * sigmoid_derivative(hidden_layer).T
+
+        self.output_weight -= self.learning_rate * delta_output_weight
+        self.output_bias -= self.learning_rate * delta_output_bias
+        self.input_weight -= self.learning_rate * delta_input_weight
+        self.hidden_bias -= self.learning_rate * nc_error * delta_hidden_bias
 
     def forward(self, x_test):
         """
@@ -122,10 +137,10 @@ class NeuralNetwork:
         :param x_test:
         :return:
         """
-        temp_h = (np.dot(x_test, self.input_weight.T) + self.hidden_bias).T
-        hidden_layer = self.activation(temp_h)
-        temp_o = (np.dot(hidden_layer, self.output_weight.T) + self.output_bias).T
-        output_layer = self.activation(temp_o)
+        temp_h = (np.dot(x_test, self.input_weight) + self.hidden_bias)
+        hidden_layer = sigmoid(temp_h)
+        temp_o = (np.dot(hidden_layer, self.output_weight) + self.output_bias)
+        output_layer = sigmoid(temp_o)
         return hidden_layer, output_layer
 
     def predict(self, x_test):
@@ -140,14 +155,14 @@ class NCL:
     ensemble_size: int
     max_iter: int
     lambda_: float
-    eta: float
+    learning_rate: float
     base = None
     rmse_array: np.array
 
     def __init__(self):
         pass
 
-    def train(self, x, y, ensemble_size, h, max_iter, lambda_, eta):
+    def train(self, x, y, ensemble_size, h, max_iter, lambda_, learning_rate):
         """
         Training ensemble
 
@@ -157,7 +172,7 @@ class NCL:
         :param h:
         :param max_iter:
         :param lambda_:
-        :param eta:
+        :param learning_rate:
         """
         # Parameter
         self.ensemble_size = ensemble_size
@@ -171,18 +186,22 @@ class NCL:
         #     nn = NeuralNetwork(h, eta)
         #     nn.initial(x, y)
         #     self.base.append(nn)
-        self.base = [NeuralNetwork(h, eta).initial(x, y) for s in range(self.ensemble_size)]
-        self.rmse_array = np.inf * np.ones(1, self.max_iter)
+        self.base = [NeuralNetwork(h, learning_rate).initial(x, y) for s in range(self.ensemble_size)]
+        self.rmse_array = np.inf * np.ones(self.max_iter)
 
         # Training
         for iter_ in range(self.max_iter):  # Each epoch
-            for i in range(n_train):  # Each training element
-                x_i = x[i, :]
-                y_i = y[i, :]
-                f_bar = self.predict(x_i)
-                for s in range(self.ensemble_size):  # Each base learner
-                    penalty = - self.lambda_ * (self.base[s].predict(x_i) - f_bar)
-                    self.base[s].backward(x_i, y_i, penalty)
+            f_bar = self.predict(x)
+            for s in range(self.ensemble_size):  # Each base learner
+                penalty = - self.lambda_ * (self.base[s].predict(x) - f_bar)
+                self.base[s].backward(x, y, penalty)
+            # for i in range(n_train):  # Each training element
+            #     x_i = x[i, :]
+            #     y_i = y[i, :]
+            #     f_bar = self.predict(x_i)
+            #     for s in range(self.ensemble_size):  # Each base learner
+            #         penalty = - self.lambda_ * (self.base[s].predict(x_i) - f_bar)
+            #         self.base[s].backward(x_i, y_i, penalty)
             self.rmse_array[iter_] = rmse(self.predict(x), y)
 
     def predict(self, x_test):
@@ -191,7 +210,7 @@ class NCL:
         :return: f_bar
         """
         f_bar = np.mean([self.base[s].predict(x_test) for s in range(self.ensemble_size)],
-                        axis=1)
+                        axis=0)
         return f_bar
 
 
