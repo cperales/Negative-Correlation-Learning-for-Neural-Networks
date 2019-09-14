@@ -117,13 +117,38 @@ class NeuralNetwork:
         return self
 
     def backward(self, x, y, penalty=0.0):
+        hidden_layer, output = self.forward(x)
+        nc_error = output - y + penalty
+
+        adj_output_weight = sigmoid_derivative(nc_error)
+        delta_output_weight = np.dot(hidden_layer.T, adj_output_weight)
+        delta_output_bias = - adj_output_weight
+
+        adj_input_weight = adj_output_weight * self.output_weight * sigmoid_derivative(self.input_weight)
+        adj_input_weight = np.dot(np.dot(adj_output_weight, self.output_weight),
+                                  sigmoid_derivative(self.input_weight))
+        delta_input_weight = np.dot(adj_input_weight, x)
+        delta_hidden_bias = - adj_input_weight
+
+        self.output_weight -= self.learning_rate * delta_output_weight
+        self.output_bias -= self.learning_rate * delta_output_bias
+        self.input_weight -= self.learning_rate * delta_input_weight
+        self.hidden_bias -= self.learning_rate * delta_hidden_bias
+
+    def backward_1(self, x, y, penalty=0.0):
         hidden_layer, output_layer = self.forward(x)
         nc_error = output_layer - y + penalty
 
-        delta_output_weight = np.dot(hidden_layer.T,  nc_error * sigmoid_derivative(output_layer))
+        adj_output_weight = np.dot(sigmoid_derivative(output_layer).T, hidden_layer)
+        delta_output_weight = np.dot(hidden_layer.T,  adj_output_weight)
         delta_output_bias = nc_error * sigmoid_derivative(output_layer)
-        delta_input_weight = nc_error * self.output_weight * sigmoid_derivative(hidden_layer), x
-        delta_hidden_bias = self.output_weight * sigmoid_derivative(hidden_layer).T
+
+
+        adj_input_weight = np.dot(delta_output_weight, self.output_weight.T) * sigmoid_derivative(hidden_layer).T
+        delta_input_weight = np.dot(x.T, adj_input_weight)
+        # delta_input_weight = np.dot(x.T, nc_error * self.output_weight * sigmoid_derivative(hidden_layer))
+
+        delta_hidden_bias = np.dot(delta_output_weight, self.output_weight.T) * sigmoid_derivative(hidden_layer).T
 
         self.output_weight -= self.learning_rate * delta_output_weight
         self.output_bias -= self.learning_rate * delta_output_bias

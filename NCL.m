@@ -4,10 +4,10 @@ function [  ] = NCL
 % Brown, Gavin, Jeremy L. Wyatt, and Peter Ti?o. 
 
 
-[x,t] = house_dataset;
+[x,t] = house_dataset();
 
-x = mapminmax(x,0,1)';
-t = mapminmax(t,0,1)';
+x = mapminmax(x,0,1);
+t = mapminmax(t,0,1);
 
 [tr,va,ts] = dividerand(size(x,1),0.5,0,0.5);
 
@@ -46,12 +46,10 @@ end
 
 Curve = inf(1,model.MaxIteration);
 for iter = 1:model.MaxIteration
-    for i = 1:data.nTrain
-        fBar = predictor(data.xTrain(i,:),model);
-        for j = 1:model.nEnsemble
-            penalty = -lambda * (forward(data.xTrain(i,:),model.base(j).net) - fBar);
-            model.base(j).net = backward(data.xTrain(i,:), data.tTrain(i,:), model.base(j).net, penalty, eta);
-        end
+    fBar = predictor(data.xTrain,model);
+    for j = 1:model.nEnsemble
+        penalty = -lambda * (forward(data.xTrain,model.base(j).net) - fBar);
+        model.base(j).net = backward(data.xTrain, data.tTrain, model.base(j).net, penalty, eta);
     end
     
     Curve(iter) = sqrt(mse(predictor(data.xTrain,model) - data.tTrain));
@@ -88,10 +86,10 @@ delta_OutputBias    = OutputLayer.*(1-OutputLayer);
 delta_InputWeight   = net.OutputWeight.*(HiddenLayer.*(1-HiddenLayer))'*X;
 delta_HiddenBias    = net.OutputWeight.*(HiddenLayer.*(1-HiddenLayer))';
 
-net.OutputWeight    = net.OutputWeight  -eta.*NC.*delta_OutputWeight';
-net.OutputBias      = net.OutputBias    -eta.*NC.*delta_OutputBias;
-net.InputWeight     = net.InputWeight   -eta.*NC.*delta_InputWeight';
-net.HiddenBias      = net.HiddenBias    -eta.*NC.*delta_HiddenBias';
+net.OutputWeight    = net.OutputWeight  -eta.*(delta_OutputWeight'*NC)';
+net.OutputBias      = net.OutputBias    -eta.*(delta_OutputBias'*NC)';
+net.InputWeight     = net.InputWeight   -eta.*NC*delta_InputWeight';
+net.HiddenBias      = net.HiddenBias    -eta.*NC*delta_HiddenBias';
 
 end
 
