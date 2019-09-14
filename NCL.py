@@ -2,6 +2,7 @@ import numpy as np
 from sklearn import datasets, preprocessing, model_selection
 from scipy.special import expit
 import time
+import matplotlib.pyplot as plt
 
 
 def test():
@@ -12,8 +13,8 @@ def test():
     :return:
     """
     # Parameters
-    max_iter = 100
-    ensemble_size = 5
+    max_iter = 1000
+    ensemble_size = 25
     h = 20  # Number of neurons in the hidden layer
 
     # Data
@@ -21,6 +22,22 @@ def test():
     x_train, x_test, y_train, y_test = model_selection.train_test_split(x, y,
                                                                         test_size=0.5,
                                                                         random_state=0)
+
+    # x_train = np.array([[0, 0, 1],
+    #                     [1, 1, 1],
+    #                     [1, 0, 1],
+    #                     [0, 1, 1],
+    #                     [1, 1, 1],
+    #                     [0, 0, 0]])
+    # y_train = np.array([[0],
+    #                     [1],
+    #                     [1],
+    #                     [0],
+    #                     [1],
+    #                     [0]])
+    # x_test = np.array([1, 0, 0])
+    # y_test = np.array([[1]])
+
     print('Size of training =', x_train.shape[0])
     print('Size of testing =', x_test.shape[0])
     print('Dimension of data =', x_train.shape[1])
@@ -28,13 +45,19 @@ def test():
     eta = 0.1
 
     start = time.perf_counter()
-    model = NCL()
+    model = NCL(classification=True)
     model.train(x_train, y_train, ensemble_size, h, max_iter, lambda_, eta)
     end = time.perf_counter()
 
     print('Elapsed time =', end - start)
-    rmse_value = rmse(model.predict(x_test), y_test)
+    pred = model.predict(x_test)
+    print('Prediction =', pred)
+    rmse_value = rmse(pred, y_test)
     print('RMSE =', rmse_value)
+    plt.plot(model.rmse_array)
+    plt.ylabel('RMSE')
+    plt.xlabel('Iterations')
+    plt.show()
 
 
 def load_dataset():
@@ -93,11 +116,17 @@ class NeuralNetwork:
     output_weight = None
     output_bias = None
 
-    def __init__(self, h, eta):
+    def __init__(self, h, eta, classification=True):
         self.h = h
         # self.x = x
         # self.y = y
         self.learning_rate = eta
+        if classification is False:
+            self.activation_output = lambda x: np.array(x, dtype=np.float)
+            self.der_activation_output = self.activation_output
+        else:
+            self.activation_output = sigmoid
+            self.der_activation_output = sigmoid_derivative
 
     def initial(self, x, y):
         """
@@ -110,50 +139,28 @@ class NeuralNetwork:
         self.n = x.shape[0]
         self.dim = x.shape[1]
         self.j = y.shape[1]
-        self.input_weight = 2.0 * np.random.rand(self.dim, self.h) - 1.0
-        self.hidden_bias = np.random.rand(1, self.h)
-        self.output_weight = 2.0 * np.random.rand(self.h, self.j) - 1.0
-        self.output_bias = np.random.rand(1, self.j)
+        self.input_weight = 2.0 * np.random.random((self.dim, self.h)) - 1.0
+        self.hidden_bias = np.random.random((self.h, 1))
+        self.output_weight = 2.0 * np.random.random((self.h, self.j)) - 1.0
+        self.output_bias = np.random.random((self.j, 1))
         return self
 
-    def backward(self, x, y, penalty=0.0):
+    def backward(self, x, y, penalty):
         hidden_layer, output = self.forward(x)
-        nc_error = output - y + penalty
+        error = output - y
+        print('Error =', np.linalg.norm(error), ', NC penalty =', np.linalg.norm(penalty))
+        print()
+        nc_error = error + penalty
 
-        adj_output_weight = sigmoid_derivative(nc_error)
-        delta_output_weight = np.dot(hidden_layer.T, adj_output_weight)
-        delta_output_bias = - adj_output_weight
+        # Output layer
+        output_delta = nc_error * self.der_activation_output(output)
+        self.output_bias -= np.mean(self.learning_rate * output_delta)
+        self.output_weight -= self.learning_rate * np.dot(hidden_layer.T, output_delta)
 
-        adj_input_weight = adj_output_weight * self.output_weight * sigmoid_derivative(self.input_weight)
-        adj_input_weight = np.dot(np.dot(adj_output_weight, self.output_weight),
-                                  sigmoid_derivative(self.input_weight))
-        delta_input_weight = np.dot(adj_input_weight, x)
-        delta_hidden_bias = - adj_input_weight
-
-        self.output_weight -= self.learning_rate * delta_output_weight
-        self.output_bias -= self.learning_rate * delta_output_bias
-        self.input_weight -= self.learning_rate * delta_input_weight
-        self.hidden_bias -= self.learning_rate * delta_hidden_bias
-
-    def backward_1(self, x, y, penalty=0.0):
-        hidden_layer, output_layer = self.forward(x)
-        nc_error = output_layer - y + penalty
-
-        adj_output_weight = np.dot(sigmoid_derivative(output_layer).T, hidden_layer)
-        delta_output_weight = np.dot(hidden_layer.T,  adj_output_weight)
-        delta_output_bias = nc_error * sigmoid_derivative(output_layer)
-
-
-        adj_input_weight = np.dot(delta_output_weight, self.output_weight.T) * sigmoid_derivative(hidden_layer).T
-        delta_input_weight = np.dot(x.T, adj_input_weight)
-        # delta_input_weight = np.dot(x.T, nc_error * self.output_weight * sigmoid_derivative(hidden_layer))
-
-        delta_hidden_bias = np.dot(delta_output_weight, self.output_weight.T) * sigmoid_derivative(hidden_layer).T
-
-        self.output_weight -= self.learning_rate * delta_output_weight
-        self.output_bias -= self.learning_rate * delta_output_bias
-        self.input_weight -= self.learning_rate * delta_input_weight
-        self.hidden_bias -= self.learning_rate * nc_error * delta_hidden_bias
+        # Hidden layer
+        hidden_delta = np.dot(output_delta, self.output_weight.T) * sigmoid_derivative(hidden_layer)
+        self.hidden_bias -= np.mean(self.learning_rate * hidden_delta, axis=0).reshape(self.h, 1)
+        self.input_weight -= self.learning_rate * np.dot(x.T, hidden_delta)
 
     def forward(self, x_test):
         """
@@ -162,14 +169,14 @@ class NeuralNetwork:
         :param x_test:
         :return:
         """
-        temp_h = (np.dot(x_test, self.input_weight) + self.hidden_bias)
+        temp_h = np.dot(x_test, self.input_weight) + self.hidden_bias.T
         hidden_layer = sigmoid(temp_h)
-        temp_o = (np.dot(hidden_layer, self.output_weight) + self.output_bias)
-        output_layer = sigmoid(temp_o)
+        temp_o = np.dot(hidden_layer, self.output_weight) + self.output_bias.T
+        output_layer = self.activation_output(temp_o)
         return hidden_layer, output_layer
 
     def predict(self, x_test):
-        hidden_layer, output_layer = self.forward(x_test)
+        _, output_layer = self.forward(x_test)
         return output_layer
 
 
@@ -183,9 +190,10 @@ class NCL:
     learning_rate: float
     base = None
     rmse_array: np.array
+    classification: bool
 
-    def __init__(self):
-        pass
+    def __init__(self, classification=True):
+        self.classification = classification
 
     def train(self, x, y, ensemble_size, h, max_iter, lambda_, learning_rate):
         """
@@ -205,13 +213,8 @@ class NCL:
         self.lambda_ = lambda_
         n_train, dim = x.shape
 
-        # # Initialization
-        # self.base = list()
-        # for s in range(self.ensemble_size):
-        #     nn = NeuralNetwork(h, eta)
-        #     nn.initial(x, y)
-        #     self.base.append(nn)
-        self.base = [NeuralNetwork(h, learning_rate).initial(x, y) for s in range(self.ensemble_size)]
+        self.base = [NeuralNetwork(h, learning_rate, classification=self.classification).initial(x, y)
+                     for s in range(self.ensemble_size)]
         self.rmse_array = np.inf * np.ones(self.max_iter)
 
         # Training
@@ -220,13 +223,6 @@ class NCL:
             for s in range(self.ensemble_size):  # Each base learner
                 penalty = - self.lambda_ * (self.base[s].predict(x) - f_bar)
                 self.base[s].backward(x, y, penalty)
-            # for i in range(n_train):  # Each training element
-            #     x_i = x[i, :]
-            #     y_i = y[i, :]
-            #     f_bar = self.predict(x_i)
-            #     for s in range(self.ensemble_size):  # Each base learner
-            #         penalty = - self.lambda_ * (self.base[s].predict(x_i) - f_bar)
-            #         self.base[s].backward(x_i, y_i, penalty)
             self.rmse_array[iter_] = rmse(self.predict(x), y)
 
     def predict(self, x_test):
